@@ -26,36 +26,61 @@ with col3:
 # ==========================================
 # A. 新增：智能读取函数 (自动找表头)
 # ==========================================
+# ==========================================
+# A. 新增：智能读取函数 (带强力纠错模式)
+# ==========================================
 def smart_read_excel(file):
     """
-    不管表头在第几行（因为可能有大标题），
-    自动向下扫描，直到找到包含'姓名'的那一行作为表头。
+    1. 自动跳过大标题，寻找含'姓名'的表头。
+    2. 如果遇到 'Workbook corruption' 错误，启用 xlrd 强力模式读取。
     """
-    # 1. 先不指定表头读取 (header=None)，这样大标题会被当成普通数据读进来
-    df = pd.read_excel(file, header=None)
+    import xlrd # 确保引入 xlrd
     
-    # 2. 在前 10 行里找，哪一行含有 "姓名" 两个字
-    target_row_index = -1
-    for i, row in df.head(10).iterrows():
-        # 把这一行的所有内容转成字符串，看看有没有 '姓名'
-        row_str = " ".join([str(x) for x in row.values])
-        if "姓名" in row_str:
-            target_row_index = i
-            break
-    
-    # 3. 如果找到了，就以那一行作为列名
-    if target_row_index != -1:
-        # 设置新的列名
-        df.columns = df.iloc[target_row_index]
-        # 截取掉表头上面的那些大标题行
-        df = df.iloc[target_row_index + 1:].reset_index(drop=True)
-    else:
-        # 如果没找到，可能文件本身格式就很标准，默认第一行就是表头
-        # 重新读一遍标准的
-        file.seek(0)
-        df = pd.read_excel(file)
+    # 辅助函数：定位表头并清理数据
+    def find_header_and_clean(df_raw):
+        target_row_index = -1
+        # 在前 10 行里找，哪一行含有 "姓名" 两个字
+        for i, row in df_raw.head(10).iterrows():
+            row_str = " ".join([str(x) for x in row.values])
+            if "姓名" in row_str:
+                target_row_index = i
+                break
         
-    return df
+        if target_row_index != -1:
+            df_raw.columns = df_raw.iloc[target_row_index] # 设置新表头
+            df_raw = df_raw.iloc[target_row_index + 1:].reset_index(drop=True) # 截取数据
+        return df_raw
+
+    try:
+        # --- 尝试 1: 标准读取 ---
+        file.seek(0) # 确保指针在开头
+        df = pd.read_excel(file, header=None)
+        
+    except Exception as e:
+        # 如果报错包含 "corruption"，说明是老式 xls 文件损坏
+        if "corruption" in str(e) or "xlrd" in str(e):
+            try:
+                # --- 尝试 2: 强力模式 (忽略损坏) ---
+                file.seek(0)
+                file_content = file.read()
+                # 使用 ignore_workbook_corruption=True 强行读取
+                wb = xlrd.open_workbook(file_contents=file_content, ignore_workbook_corruption=True)
+                sheet = wb.sheet_by_index(0)
+                
+                # 手动将数据转为 DataFrame
+                data = []
+                for row_idx in range(sheet.nrows):
+                    data.append(sheet.row_values(row_idx))
+                df = pd.DataFrame(data)
+            except Exception as e2:
+                st.error(f"❌ 文件严重损坏无法读取，请尝试用 Excel 打开并另存为 .xlsx 格式再上传。\n错误详情: {e2}")
+                st.stop()
+        else:
+            st.error(f"❌ 读取文件出错: {e}")
+            st.stop()
+
+    # 统一进行表头查找清洗
+    return find_header_and_clean(df)
 
 # ==========================================
 # 1. 数据清洗函数
@@ -150,3 +175,4 @@ if file_reg_upload and file_in_upload and file_out_upload:
 
         except Exception as e:
             st.error(f"发生错误: {e}")
+
