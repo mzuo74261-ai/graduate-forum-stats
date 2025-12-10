@@ -30,7 +30,7 @@ def clean_data(df, tag="表"):
     df.columns = df.columns.str.strip()
     try:
         name_col = [c for c in df.columns if "姓名" in c][0]
-        id_col = [c for c in df.columns if "学号" in c][0]
+        id_col = [c for c in df.columns if "学号" in c or "学工号" in c][0]
     except IndexError:
         st.error(f"❌ 在【{tag}】中没找到'姓名'或'学号'列，请检查文件内容。")
         st.stop()
@@ -115,4 +115,5 @@ if file_reg_upload and file_in_upload and file_out_upload:
             )
 
         except Exception as e:
+
             st.error(f"发生错误: {e}")
